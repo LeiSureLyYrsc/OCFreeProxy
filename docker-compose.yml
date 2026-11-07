@@ -1,0 +1,20 @@
+services:
+  ocfreeproxy:
+    image: ghcr.io/leisurelyyrsc/ocfreeproxy:latest
+    build: .
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/data
+    environment:
+      DATA_DIR: /data
+      HOST: 0.0.0.0
+      PORT: "8080"
+      # Optional gateway auth (leave empty to disable)
+      ACCESS_TOKEN: ""
+      # Upstream OpenCode Zen OpenAI-compatible base
+      UPSTREAM_BASE_URL: https://opencode.ai/zen/v1
+      OPENCODE_API_KEY: ""
+      # Include local/direct egress in the proxy pool
+      USE_DIRECT: "true"
+    restart: unless-stopped
