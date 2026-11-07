@@ -164,7 +164,11 @@ $("#formPaste").addEventListener("submit", async (e) => {
       method: "POST",
       body: JSON.stringify({ name: fd.get("name"), content: fd.get("content") }),
     });
-    toast(data.refresh?.ok ? `粘贴导入成功：可用 ${data.refresh.summary?.usable ?? "?"}` : `导入完成但解析失败：${data.refresh?.error || ""}`);
+    if (data.mode === "proxies") {
+      toast(`已加入代理池：${data.imported} 个 HTTP/SOCKS5`);
+    } else {
+      toast(data.refresh?.ok ? `粘贴导入成功：可用 ${data.refresh.summary?.usable ?? "?"}` : `导入完成但解析失败：${data.refresh?.error || ""}`);
+    }
     e.target.reset();
     await refreshStatus();
   } catch (err) { toast(err.message, true); }

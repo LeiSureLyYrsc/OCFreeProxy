@@ -15,7 +15,81 @@ import yaml
 from .store import ProxyEntry
 
 
+
 SUPPORTED_PROXY_TYPES = {"http", "https", "socks5", "socks5h", "socks4"}
+
+_BARE_PROXY_RE = re.compile(
+    r"^(?:(?P<user>[^@\s/]+)@)?(?P<host>\[[0-9a-fA-F:]+\]|[0-9a-zA-Z.-]+):(?P<port>\d{2,5})$"
+)
+
+
+def is_proxy_url(text: str) -> bool:
+    """True when the line is an HTTP/SOCKS proxy endpoint, not a subscription URL."""
+    t = (text or "").strip()
+    if not t:
+        return False
+    lower = t.lower()
+    if lower.startswith(("socks5://", "socks5h://", "socks4://", "socks://")):
+        return True
+    if lower.startswith(("http://", "https://")):
+        parsed = urlparse(t)
+        if not parsed.hostname:
+            return False
+        path = (parsed.path or "").rstrip("/")
+        if parsed.port and path in ("", "/"):
+            return True
+        if parsed.username is not None and parsed.port:
+            return True
+        return False
+    return bool(_BARE_PROXY_RE.match(t))
+
+
+def is_subscription_fetch_url(text: str) -> bool:
+    """Single-line http(s) URL that should be fetched as Clash/base64 subscription."""
+    t = (text or "").strip()
+    if any(ch in (text or "") for ch in ("\n", "\r")):
+        return False
+    lower = t.lower()
+    if not lower.startswith(("http://", "https://")):
+        return False
+    return not is_proxy_url(t)
+
+
+def normalize_proxy_url(text: str) -> tuple[str, str]:
+    """Return (proxy_url, protocol) for http/socks5. Raises ValueError if invalid."""
+    t = (text or "").strip()
+    if not t:
+        raise ValueError("proxy_url required")
+    lower = t.lower()
+    if lower.startswith(("socks5://", "socks5h://", "socks4://", "socks://")):
+        # Force parseable scheme for urlparse
+        to_parse = t
+        if lower.startswith("socks://"):
+            to_parse = "socks5://" + t.split("://", 1)[1]
+        parsed = urlparse(to_parse)
+        if not parsed.hostname:
+            raise ValueError("socks 代理缺少主机")
+        port = parsed.port or 1080
+        auth = ""
+        if parsed.username is not None:
+            auth = f"{parsed.username}:{parsed.password or ''}@"
+        url = f"socks5://{auth}{parsed.hostname}:{port}"
+        return url, "socks5"
+    if lower.startswith(("http://", "https://")):
+        parsed = urlparse(t)
+        if not parsed.hostname or not parsed.port:
+            raise ValueError("http 代理需要 host:port")
+        return t, "http"
+    m = _BARE_PROXY_RE.match(t)
+    if m:
+        user = m.group("user")
+        host = m.group("host")
+        port = m.group("port")
+        auth = f"{user}@" if user else ""
+        url = f"http://{auth}{host}:{port}"
+        return url, "http"
+    raise ValueError("仅支持 http(s)://、socks5:// 或 host:port")
+
 
 
 @dataclass
@@ -113,16 +187,16 @@ def parse_uri_line(line: str) -> ParsedNode | None:
     if not line or line.startswith("#"):
         return None
 
-    # Plain proxy URLs
+    # Plain proxy URLs (http/socks5) or bare host:port
     lower = line.lower()
-    if lower.startswith(("http://", "https://", "socks5://", "socks5h://", "socks4://")):
-        parsed = urlparse(line)
-        if not parsed.hostname or not parsed.port:
+    if lower.startswith(("http://", "https://", "socks5://", "socks5h://", "socks4://", "socks://")) or _BARE_PROXY_RE.match(line):
+        try:
+            url, protocol = normalize_proxy_url(line)
+        except ValueError:
             return None
-        scheme = parsed.scheme.lower()
-        protocol = "socks5" if scheme.startswith("socks") else "http"
-        name = parsed.hostname
-        return ParsedNode(name=name, proxy_url=line, protocol=protocol, meta={"raw": line})
+        parsed = urlparse(url)
+        name = parsed.hostname or line
+        return ParsedNode(name=name, proxy_url=url, protocol=protocol, meta={"raw": line})
 
     # ss://method:pass@host:port#name  or ss://base64
     if lower.startswith("ss://"):

@@ -18,7 +18,10 @@ from .proxy_pool import ProxyPool
 from .store import Store
 from .subscription import (
     fetch_subscription_url,
+    is_proxy_url,
+    is_subscription_fetch_url,
     nodes_to_proxy_entries,
+    normalize_proxy_url,
     parse_subscription_content,
     summarize_nodes,
 )
@@ -168,17 +171,13 @@ class ManualProxyBody(BaseModel):
 @admin.post("/proxies")
 async def add_manual_proxy(body: ManualProxyBody, request: Request) -> dict[str, Any]:
     store = _store(request)
-    url = body.proxy_url.strip()
-    if not url:
-        raise HTTPException(400, "proxy_url required")
-    lower = url.lower()
-    if lower.startswith(("socks5://", "socks5h://", "socks4://")):
-        protocol = "socks5"
-    elif lower.startswith(("http://", "https://")):
-        protocol = "http"
-    else:
-        raise HTTPException(400, "仅支持 http(s):// 或 socks5:// URL")
-    name = body.name.strip() or url
+    try:
+        url, protocol = normalize_proxy_url(body.proxy_url)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    from urllib.parse import urlparse
+
+    name = body.name.strip() or (urlparse(url).hostname or url)
     entry = store.add_proxy(name=name, proxy_url=url, protocol=protocol, source="manual")
     return {"ok": True, "proxy": entry.to_dict()}
 
@@ -241,8 +240,43 @@ async def add_paste_subscription(body: PasteSubBody, request: Request) -> dict[s
     content = body.content.strip()
     if not content:
         raise HTTPException(400, "内容不能为空")
-    # If pasted a bare URL, treat as clash_url
-    kind = "clash_url" if content.startswith(("http://", "https://")) and "\n" not in content else "paste"
+
+    lines = [
+        ln.strip()
+        for ln in content.splitlines()
+        if ln.strip() and not ln.strip().startswith("#")
+    ]
+
+    # All lines are HTTP/SOCKS5 proxies → add straight into the pool
+    if lines and all(is_proxy_url(ln) for ln in lines):
+        from urllib.parse import urlparse
+
+        added = []
+        prefix = body.name.strip()
+        for ln in lines:
+            try:
+                url, protocol = normalize_proxy_url(ln)
+            except ValueError as exc:
+                raise HTTPException(400, str(exc)) from exc
+            host = urlparse(url).hostname or url
+            name = f"{prefix} · {host}" if prefix and len(lines) > 1 else (prefix or host)
+            entry = store.add_proxy(
+                name=name,
+                proxy_url=url,
+                protocol=protocol,
+                source="manual",
+            )
+            added.append(entry.to_dict())
+        return {
+            "ok": True,
+            "mode": "proxies",
+            "imported": len(added),
+            "summary": {"total": len(added), "usable": len(added), "unsupported": 0},
+            "proxies": added,
+        }
+
+    # Single subscription fetch URL (not a proxy endpoint)
+    kind = "clash_url" if is_subscription_fetch_url(content) else "paste"
     sub = store.add_subscription(
         name=body.name.strip() or ("订阅链接" if kind == "clash_url" else "粘贴订阅"),
         kind=kind,
@@ -250,7 +284,7 @@ async def add_paste_subscription(body: PasteSubBody, request: Request) -> dict[s
     )
     result = await _refresh_one(store, sub.id)
     sub = store.get_subscription(sub.id) or sub
-    return {"ok": True, "subscription": sub.to_dict(), "refresh": result}
+    return {"ok": True, "mode": "subscription", "subscription": sub.to_dict(), "refresh": result}
 
 
 @admin.post("/subscriptions/{sub_id}/refresh")
@@ -270,9 +304,7 @@ async def _refresh_one(store: Store, sub_id: str) -> dict[str, Any]:
         raise HTTPException(404, "subscription not found")
     try:
         if sub.kind == "clash_url" or (
-            sub.kind == "paste"
-            and sub.content.startswith(("http://", "https://"))
-            and "\n" not in sub.content
+            sub.kind == "paste" and is_subscription_fetch_url(sub.content)
         ):
             raw = await fetch_subscription_url(sub.content)
         else:

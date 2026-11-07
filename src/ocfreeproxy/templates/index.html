@@ -85,11 +85,11 @@
         <form id="formPaste" class="stack">
           <label>名称 <input name="name" placeholder="可选" /></label>
           <label>内容
-            <textarea name="content" rows="6" placeholder="可粘贴：订阅 URL、Clash YAML、Base64（V2Ray/SSR 常见）、或每行一个 vmess/vless/trojan/ss/socks5/http 链接" required></textarea>
+            <textarea name="content" rows="6" placeholder="可粘贴：HTTP/SOCKS5（每行一个，如 socks5://127.0.0.1:1080 或 127.0.0.1:7890）、订阅 URL、Clash YAML、Base64、或 vmess/vless/trojan/ss 链接" required></textarea>
           </label>
           <button class="btn primary" type="submit">导入</button>
         </form>
-        <p class="hint">不是读取系统剪贴板，而是在此输入栏粘贴内容。</p>
+        <p class="hint">HTTP/SOCKS5 会直接加入代理池；订阅 / Clash / 其它协议按内容解析。此处是输入栏粘贴，不读系统剪贴板。</p>
       </div>
     </section>
 
@@ -99,7 +99,7 @@
       </div>
       <form id="formManual" class="row">
         <input name="name" placeholder="名称（可选）" />
-        <input name="proxy_url" placeholder="socks5://user:pass@host:port 或 http://host:port" required style="flex:1" />
+        <input name="proxy_url" placeholder="socks5://host:port · http://host:port · 或 host:port" required style="flex:1" />
         <button class="btn primary" type="submit">添加</button>
       </form>
     </section>
