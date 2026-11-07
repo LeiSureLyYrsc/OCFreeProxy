@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>OCFreeProxy — OpenCode Free 反代</title>
+  <link rel="stylesheet" href="/static/app.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="top">
+      <div>
+        <h1>OCFreeProxy</h1>
+        <p class="muted">OpenCode Free 模型反代 · 代理池 · 冷却 · 本地出口</p>
+      </div>
+      <div class="top-actions">
+        <label class="switch">
+          <input type="checkbox" id="useDirect" {% if use_direct %}checked{% endif %} />
+          <span>使用本地连接</span>
+        </label>
+        <button id="btnRefreshAll" class="btn">刷新状态</button>
+      </div>
+    </header>
+
+    <section class="grid">
+      <div class="card">
+        <div class="card-h">
+          <h2>仪表盘</h2>
+          <span id="poolSummary" class="pill">—</span>
+        </div>
+        <div class="stats" id="stats">
+          <div><span class="n" id="statActive">0</span><span class="l">可用</span></div>
+          <div><span class="n" id="statCooling">0</span><span class="l">冷却中</span></div>
+          <div><span class="n" id="statModels">0</span><span class="l">免费模型</span></div>
+        </div>
+        <p class="hint">上游：<code id="upstreamLabel">{{ upstream_base_url }}</code>
+          {% if access_token_set %}<span class="pill ok">ACCESS_TOKEN 已启用</span>{% else %}<span class="pill">网关无鉴权</span>{% endif %}
+        </p>
+      </div>
+
+      <div class="card">
+        <div class="card-h">
+          <h2>设置</h2>
+        </div>
+        <form id="formUpstream" class="stack">
+          <label>上游 Base URL
+            <input name="upstream_base_url" value="{{ upstream_base_url }}" />
+          </label>
+          <button class="btn primary" type="submit">保存上游</button>
+        </form>
+        <p class="hint">OpenAI 兼容：<code>/v1/models</code> · <code>/v1/chat/completions</code></p>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-h">
+        <h2>免费模型</h2>
+        <button id="btnRefreshModels" class="btn">拉取模型列表</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>ID</th><th>名称</th><th>上下文</th><th>说明</th></tr>
+          </thead>
+          <tbody id="modelsBody">
+            <tr><td colspan="4" class="muted">加载中…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="grid">
+      <div class="card">
+        <div class="card-h"><h2>导入 Clash 订阅 URL</h2></div>
+        <form id="formClash" class="stack">
+          <label>名称 <input name="name" placeholder="可选" /></label>
+          <label>订阅链接 <input name="url" placeholder="https://..." required /></label>
+          <button class="btn primary" type="submit">添加并刷新</button>
+        </form>
+        <p class="hint">解析 Clash YAML 中的 <code>http</code> / <code>socks5</code> 节点进入代理池。其它协议会标记为 unsupported。</p>
+      </div>
+
+      <div class="card">
+        <div class="card-h"><h2>粘贴订阅 / 节点</h2></div>
+        <form id="formPaste" class="stack">
+          <label>名称 <input name="name" placeholder="可选" /></label>
+          <label>内容
+            <textarea name="content" rows="6" placeholder="可粘贴：订阅 URL、Clash YAML、Base64（V2Ray/SSR 常见）、或每行一个 vmess/vless/trojan/ss/socks5/http 链接" required></textarea>
+          </label>
+          <button class="btn primary" type="submit">导入</button>
+        </form>
+        <p class="hint">不是读取系统剪贴板，而是在此输入栏粘贴内容。</p>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-h">
+        <h2>手动添加 HTTP / SOCKS5</h2>
+      </div>
+      <form id="formManual" class="row">
+        <input name="name" placeholder="名称（可选）" />
+        <input name="proxy_url" placeholder="socks5://user:pass@host:port 或 http://host:port" required style="flex:1" />
+        <button class="btn primary" type="submit">添加</button>
+      </form>
+    </section>
+
+    <section class="card">
+      <div class="card-h"><h2>订阅列表</h2></div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>名称</th><th>类型</th><th>上次刷新</th><th>错误</th><th>操作</th></tr>
+          </thead>
+          <tbody id="subsBody">
+            <tr><td colspan="5" class="muted">暂无</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-h"><h2>代理池</h2></div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>名称</th><th>协议</th><th>来源</th><th>状态</th><th>冷却剩余</th><th>操作</th></tr>
+          </thead>
+          <tbody id="proxiesBody">
+            <tr><td colspan="6" class="muted">加载中…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <footer class="foot muted">
+      OCFreeProxy · 免费额度按出口 IP / IPv6 /64 · UTC 日切 · 429 时按 Retry-After 或至下一 UTC 午夜冷却
+    </footer>
+  </div>
+  <div id="toast" class="toast hidden"></div>
+  <script src="/static/app.js"></script>
+</body>
+</html>
